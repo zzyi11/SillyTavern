@@ -20,7 +20,7 @@ import {
 } from '../../../script.js';
 import { getApiUrl, getContext, extension_settings, doExtrasFetch, modules, renderExtensionTemplate } from '../../extensions.js';
 import { selected_group } from '../../group-chats.js';
-import { stringFormat, initScrollHeight, resetScrollHeight, getCharaFilename, saveBase64AsFile, getBase64Async, delay } from '../../utils.js';
+import { stringFormat, initScrollHeight, resetScrollHeight, getCharaFilename, saveBase64AsFile, getBase64Async, delay, isTrueBoolean } from '../../utils.js';
 import { getMessageTimeStamp, humanizedDateTime } from '../../RossAscends-mods.js';
 import { SECRET_KEYS, secret_state } from '../../secrets.js';
 import { getNovelUnlimitedImageGeneration, getNovelAnlas, loadNovelSubscriptionData } from '../../nai-settings.js';
@@ -145,8 +145,8 @@ const promptTemplates = {
 };
 
 const helpString = [
-    `${m('(argument)')} – requests to generate an image. Supported arguments: ${m(j(Object.values(triggerWords).flat()))}.`,
-    'Anything else would trigger a "free mode" to make generate whatever you prompted. Example: \'/imagine apple tree\' would generate a picture of an apple tree.',
+    `${m('[quiet=false/true] (argument)')} – requests to generate an image and posts it to chat (unless quiet=true argument is specified). Supported arguments: ${m(j(Object.values(triggerWords).flat()))}.`,
+    'Anything else would trigger a "free mode" to make generate whatever you prompted. Example: \'/imagine apple tree\' would generate a picture of an apple tree. Returns a link to the generated image.',
 ].join(' ');
 
 const defaultPrefix = 'best quality, absurdres, aesthetic,';
@@ -1693,7 +1693,7 @@ function getRawLastMessage() {
     return `((${processReply(lastMessage)})), (${processReply(situation)}:0.7), (${processReply(characterDescription)}:0.5)`;
 }
 
-async function generatePicture(_, trigger, message, callback) {
+async function generatePicture(args, trigger, message, callback) {
     if (!trigger || trigger.trim().length === 0) {
         console.log('Trigger word empty, aborting');
         return;
@@ -1731,7 +1731,12 @@ async function generatePicture(_, trigger, message, callback) {
         };
     }
 
+    if (isTrueBoolean(args?.quiet)) {
+        callback = () => { };
+    }
+
     const dimensions = setTypeSpecificDimensions(generationType);
+    let imagePath = '';
 
     try {
         const prompt = await getPrompt(generationType, message, trigger, quietPrompt);
@@ -1740,7 +1745,7 @@ async function generatePicture(_, trigger, message, callback) {
         context.deactivateSendButtons();
         hideSwipeButtons();
 
-        await sendGenerationRequest(generationType, prompt, characterName, callback);
+        imagePath = await sendGenerationRequest(generationType, prompt, characterName, callback);
     } catch (err) {
         console.trace(err);
         throw new Error('SD prompt text generation failed.');
@@ -1750,6 +1755,8 @@ async function generatePicture(_, trigger, message, callback) {
         context.activateSendButtons();
         showSwipeButtons();
     }
+
+    return imagePath;
 }
 
 function setTypeSpecificDimensions(generationType) {
@@ -1964,6 +1971,7 @@ async function sendGenerationRequest(generationType, prompt, characterName = nul
     const filename = `${characterName}_${humanizedDateTime()}`;
     const base64Image = await saveBase64AsFile(result.data, characterName, filename, result.format);
     callback ? callback(prompt, base64Image, generationType) : sendMessage(prompt, base64Image, generationType);
+    return base64Image;
 }
 
 async function generateTogetherAIImage(prompt, negativePrompt) {
@@ -2286,7 +2294,7 @@ async function generateComfyImage(prompt, negativePrompt) {
         toastr.error(`Failed to load workflow.\n\n${text}`);
     }
     let workflow = (await workflowResponse.json()).replace('"%prompt%"', JSON.stringify(prompt));
-    workflow = (await workflowResponse.json()).replace('"%negative_prompt%"', JSON.stringify(negativePrompt));
+    workflow = workflow.replace('"%negative_prompt%"', JSON.stringify(negativePrompt));
     workflow = workflow.replace('"%seed%"', JSON.stringify(Math.round(Math.random() * Number.MAX_SAFE_INTEGER)));
     placeholders.forEach(ph => {
         workflow = workflow.replace(`"%${ph}%"`, JSON.stringify(extension_settings.sd[ph]));
@@ -2642,7 +2650,7 @@ $('#sd_dropdown [id]').on('click', function () {
 
 jQuery(async () => {
     registerSlashCommand('imagine', generatePicture, ['sd', 'img', 'image'], helpString, true, true);
-    registerSlashCommand('imagine-comfy-workflow', changeComfyWorkflow, ['icw'], '(workflowName) - change the workflow to be used for image generation with ComfyUI, e.g. <tt>/imagine-comfy-workflow MyWorkflow</tt>')
+    registerSlashCommand('imagine-comfy-workflow', changeComfyWorkflow, ['icw'], '(workflowName) - change the workflow to be used for image generation with ComfyUI, e.g. <tt>/imagine-comfy-workflow MyWorkflow</tt>');
 
     $('#extensions_settings').append(renderExtensionTemplate('stable-diffusion', 'settings', defaultSettings));
     $('#sd_source').on('change', onSourceChange);

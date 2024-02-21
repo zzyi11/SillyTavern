@@ -35,6 +35,8 @@ export const SENTENCEPIECE_TOKENIZERS = [
     //tokenizers.NERD2,
 ];
 
+export const TEXTGEN_TOKENIZERS = [OOBA, TABBY, KOBOLDCPP, LLAMACPP, APHRODITE];
+
 const TOKENIZER_URLS = {
     [tokenizers.GPT2]: {
         encode: '/api/tokenizers/gpt2/encode',
@@ -190,7 +192,7 @@ export function getTokenizerBestMatch(forApi) {
         // - Tokenizer haven't reported an error previously
         const hasTokenizerError = sessionStorage.getItem(TOKENIZER_WARNING_KEY);
         const isConnected = online_status !== 'no_connection';
-        const isTokenizerSupported = [OOBA, TABBY, KOBOLDCPP, LLAMACPP].includes(textgen_settings.type);
+        const isTokenizerSupported = TEXTGEN_TOKENIZERS.includes(textgen_settings.type);
 
         if (!hasTokenizerError && isConnected) {
             if (forApi === 'kobold' && kai_flags.can_use_tokenization) {
@@ -667,9 +669,11 @@ function getTextTokensFromKoboldAPI(str) {
  * Calls the underlying tokenizer model to decode token ids to text.
  * @param {string} endpoint API endpoint.
  * @param {number[]} ids Array of token ids
+ * @returns {({ text: string, chunks?: string[] })} Decoded token text as a single string and individual chunks (if available).
  */
 function decodeTextTokensFromServer(endpoint, ids) {
     let text = '';
+    let chunks = [];
     jQuery.ajax({
         async: false,
         type: 'POST',
@@ -679,9 +683,10 @@ function decodeTextTokensFromServer(endpoint, ids) {
         contentType: 'application/json',
         success: function (data) {
             text = data.text;
+            chunks = data.chunks;
         },
     });
-    return text;
+    return { text, chunks };
 }
 
 /**
@@ -723,6 +728,7 @@ export function getTextTokens(tokenizerType, str) {
  * Decodes token ids to text using the server API.
  * @param {number} tokenizerType Tokenizer type.
  * @param {number[]} ids Array of token ids
+ * @returns {({ text: string, chunks?: string[] })} Decoded token text as a single string and individual chunks (if available).
  */
 export function decodeTextTokens(tokenizerType, ids) {
     // Currently, neither remote API can decode, but this may change in the future. Put this guard here to be safe
@@ -732,12 +738,12 @@ export function decodeTextTokens(tokenizerType, ids) {
     const tokenizerEndpoints = TOKENIZER_URLS[tokenizerType];
     if (!tokenizerEndpoints) {
         console.warn('Unknown tokenizer type', tokenizerType);
-        return [];
+        return { text: '', chunks: [] };
     }
     let endpointUrl = tokenizerEndpoints.decode;
     if (!endpointUrl) {
         console.warn('This tokenizer type does not support decoding', tokenizerType);
-        return [];
+        return { text: '', chunks: [] };
     }
     if (tokenizerType === tokenizers.OPENAI) {
         endpointUrl += `?model=${getTokenizerModel()}`;
